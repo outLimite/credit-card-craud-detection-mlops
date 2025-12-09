@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+
 import numpy as np
 import mlflow
 import pandas as pd
@@ -10,12 +11,24 @@ from sklearn.metrics import roc_auc_score, f1_score, precision_score, recall_sco
 
 from data.preprocessing_data import train_val_test_split_df, apply_sampling
 
-mlflow.set_tracking_uri("http://localhost:5050")
-experiment = mlflow.get_experiment_by_name("catboost-fraud-classification-optuna")
+BASE_DIR = Path(__file__).resolve().parent.parent
+MODELS_DIR = BASE_DIR / "models"
+PLOTS_DIR = BASE_DIR / "data/plots"
+CATBOOST_INFO_DIR = BASE_DIR / "catboost_info"
+
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+CATBOOST_INFO_DIR.mkdir(parents=True, exist_ok=True)
+
+MLFLOW_URI = "http://localhost:5050"
+EXPERIMENT_NAME = "catboost-fraud-classification-optuna"
+
+mlflow.set_tracking_uri(MLFLOW_URI)
+experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
 if experiment:
     mlflow.set_experiment(experiment.experiment_id)
 else:
-    mlflow.create_experiment("catboost-fraud-classification-optuna")
+    mlflow.create_experiment(EXPERIMENT_NAME)
 
 def get_model(params):
     """Создает модель CatBoost для классификации"""
@@ -44,11 +57,6 @@ def run_optimization(num_trials: int):
         params['scale_pos_weight'] = trial.suggest_float('scale_pos_weight', 
                                                         max(0.1, scale_pos_weight * 0.5), 
                                                         min(10.0, scale_pos_weight * 2.0))
-        
-        if trial.suggest_categorical('use_advanced_params', [True, False]):
-            params['grow_policy'] = trial.suggest_categorical('grow_policy', 
-                                                            ['SymmetricTree', 'Depthwise', 'Lossguide'])
-            params['min_data_in_leaf'] = trial.suggest_int('min_data_in_leaf', 1, 100)
         
         with mlflow.start_run(nested=True):
             mlflow.log_params(params)
@@ -89,7 +97,7 @@ def run_optimization(num_trials: int):
     )
     
     mlflow_callback = optuna.integration.MLflowCallback(
-        tracking_uri="http://localhost:5050",
+        tracking_uri=MLFLOW_URI,
         metric_name="roc_auc",
     )
     
@@ -120,11 +128,11 @@ def run_optimization(num_trials: int):
         mlflow.log_metric("test_roc_auc", test_roc_auc)
         mlflow.log_metric("test_f1_score", test_f1)
         
-        best_model_path = "/data/best_catboost_fraud_model.cbm"
-        best_model.save_model(best_model_path)
-        mlflow.log_artifact(best_model_path, artifact_path="best_model")
+        best_model_path = MODELS_DIR / "best_catboost_fraud_model.cbm"
+        best_model.save_model(str(best_model_path))
+        mlflow.log_artifact(str(best_model_path), artifact_path="best_model")
     
-    print("\n=== OPTUNA OPTIMIZATION RESULTS ===")
+    print("\nResults")
     print(f"Number of finished trials: {len(study.trials)}")
     print(f"Best trial:")
     print(f"  Value (ROC-AUC): {study.best_value:.4f}")
@@ -133,19 +141,7 @@ def run_optimization(num_trials: int):
     print(f"  Params: ")
     for key, value in study.best_params.items():
         print(f"    {key}: {value}")
-    
-    try:
-        fig = optuna.visualization.plot_optimization_history(study)
-        fig.write_image("/data/optimization_history.png")
-        mlflow.log_artifact("/data/optimization_history.png")
-        
-        fig2 = optuna.visualization.plot_param_importances(study)
-        fig2.write_image("/data/param_importances.png")
-        mlflow.log_artifact("/data/param_importances.png")
-        
-    except Exception as e:
-        print(f"Could not create optimization plots: {e}")
-    
+
     return study
 
 if __name__ == '__main__':

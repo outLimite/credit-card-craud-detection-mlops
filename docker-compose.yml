@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  mlflow:
+    build:
+      context: ./services/mlflow
+    depends_on:
+      - minio
+    env_file:
+      - .env
+    volumes:
+      - ./data_store/mlflow:/srv/mlflow
+      - ./services/mlflow/src:/srv/src
+    container_name: mlflow_container_ui
+    ports:
+      - 5050:5050
+    networks:
+      - prj_network
+    command: >
+      serve
+  minio:
+    image: minio/minio:latest
+    container_name: backtier_s3
+    env_file:
+      - .env
+    volumes:
+      - ./data_store/minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      prj_network:
+        aliases:
+          - backtier_s3
+    command: server /data --console-address ":9001"
+  jupyter:
+    build:
+      context: .
+      dockerfile: services/jupyter/Dockerfile
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/srv/notebooks
+      - ./services/jupyter/src:/srv/src
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - prj_network
+    command: >
+      jupyter notebook /srv/notebooks
+      --ip=0.0.0.0
+      --port=8888
+      --allow-root
+      --no-browser
+      --NotebookApp.token=''
+      --NotebookApp.password=''
+
+networks:
+  prj_network:
+    driver: bridge
